@@ -1,0 +1,47 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: od-api
+  labels:
+    app: od-api
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: od-api
+  template:
+    metadata:
+      labels:
+        app: od-api
+    spec:
+      containers:
+      - name: od-api
+        image: ghcr.io/stichting-crow/dashboarddeelmobiliteit-od-api:0.1
+        imagePullPolicy: IfNotPresent
+        env:
+          - name: DB_HOST
+            value: 10.133.75.95
+          - name: DB_PASSWORD
+            valueFrom:
+              secretKeyRef:
+                key: password
+                name: db-password-deelfietsdashboard
+          - name: DB_USER
+            value: deelfietsdashboard
+          - name: DB_PORT
+            value: "5432"
+          - name: TZ
+            value: Europe/Amsterdam
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: od-api
+spec:
+  selector:
+    app: od-api
+  ports:
+  - name: od-api-http
+    protocol: TCP
+    port: 80
+

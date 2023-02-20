@@ -65,6 +65,19 @@ origin_cells_query = Query(
     title = "Origin cells",
     description = "Specify origin cells you want to receive destinations from."
 )
+destination_stat_refs_query = Query(
+    default = ...,
+    example = "cbs:WK059916,cbs:WK059917,cbs:WK059927,cbs:WK059901",
+    title = "Destination stat_refs",
+    description = "Specify destination stat_refs want to receive destinations from, currently only residential_areas (wijken) are supported."
+
+)
+origin_stat_refs_query = Query(
+    default = ...,
+    example = "cbs:WK059916,cbs:WK059917,cbs:WK059927,cbs:WK059901",
+    title = "Origin cells",
+    description = "Specify origin stat_refs want to receive destinations from, currently only residential_areas (wijken) are supported."
+)
 
 def serialize_od_h3_result(results):
     res = []
@@ -73,8 +86,15 @@ def serialize_od_h3_result(results):
         res.append(result)
     return res
 
+def serialize_od_geometry_result(results):
+    res = []
+    for result in results:
+        result["cell"] = h3.h3_to_string(result["cell"])
+        res.append(result)
+    return res
+
 @app.get("/origins/h3")
-async def get_origins(
+async def get_origins_h3(
     start_date: date | None = start_date_query,
     end_date: date | None = end_date_query,
     days_of_week: str | None = days_of_week_query,
@@ -91,11 +111,11 @@ async def get_origins(
         end_date = end_date,
         days_of_week = days_of_week,
         time_periods = time_periods,
-        h3_resolution = h3_resolution,
-        modalities = modalities,
-        destination_cells = destination_cells
+        modalities = modalities
     )
-    result = db.query_origins(query_od_parameter)
+    h3_resolution = int(h3_resolution)
+    query_destinations = query_od_parameters.convert_h3_cells(cells=destination_cells, h3_resolution=h3_resolution)
+    result = db.query_h3_origins(query_destinations, h3_resolution, query_od_parameter)
     return {
         "result": {
             "destinations": serialize_od_h3_result(result)
@@ -103,7 +123,7 @@ async def get_origins(
     }
 
 @app.get("/destinations/h3")
-async def get_destinations( 
+async def get_destinations_h3( 
     start_date: date | None = start_date_query,
     end_date: date | None = end_date_query,
     days_of_week: str | None = days_of_week_query,
@@ -120,14 +140,69 @@ async def get_destinations(
         end_date = end_date,
         days_of_week = days_of_week,
         time_periods = time_periods,
-        h3_resolution = h3_resolution,
-        modalities = modalities,
-        origin_cells = origin_cells,
+        modalities = modalities
     )
-    result = db.query_destinations(query_od_parameter)
+    h3_resolution = int(h3_resolution)
+    query_origins = query_od_parameters.convert_h3_cells(cells=origin_cells, h3_resolution=h3_resolution)
+
+    result = db.query_h3_destinations(query_origins, h3_resolution, query_od_parameter)
     return {
         "result": {
             "destinations": serialize_od_h3_result(result)
+        }  
+    }
+
+@app.get("/origins/geometry")
+async def get_origins(
+    start_date: date | None = start_date_query,
+    end_date: date | None = end_date_query,
+    days_of_week: str | None = days_of_week_query,
+    time_periods: str | None = time_periods_query,
+    modalities: str | None = modalities_query,
+    destination_stat_refs: str | None = destination_stat_refs_query,
+    current_user: access_control.User = Depends(access_control.get_current_user)
+):    
+    if not current_user.acl.is_admin:
+        raise HTTPException(403, "This user is not authorized to receive this information")
+    query_od_parameter = query_od_parameters.prepare_query(
+        start_date = start_date,
+        end_date = end_date,
+        days_of_week = days_of_week,
+        time_periods = time_periods,
+        modalities = modalities
+    )
+    destination_stat_refs = destination_stat_refs.split(",")
+    result = db.query_geometry_origins(destination_stat_refs, query_od_parameter)
+    return {
+        "result": {
+            "destinations": result
+        } 
+    }
+
+@app.get("/destinations/geometry")
+async def get_destinations( 
+    start_date: date | None = start_date_query,
+    end_date: date | None = end_date_query,
+    days_of_week: str | None = days_of_week_query,
+    time_periods: str | None = time_periods_query,
+    modalities: str | None = modalities_query,
+    origin_stat_refs: str | None = origin_stat_refs_query,
+    current_user: access_control.User = Depends(access_control.get_current_user)
+):
+    if not current_user.acl.is_admin:
+        raise HTTPException(403, "This user is not authorized to receive this information")
+    query_od_parameter = query_od_parameters.prepare_query(
+        start_date = start_date,
+        end_date = end_date,
+        days_of_week = days_of_week,
+        time_periods = time_periods,
+        modalities = modalities
+    )
+    origin_stat_refs = origin_stat_refs.split(",")
+    result = db.query_geometry_destinations(origin_stat_refs, query_od_parameter)
+    return {
+        "result": {
+            "destinations": result
         }  
     }
 

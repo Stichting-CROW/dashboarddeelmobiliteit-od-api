@@ -5,13 +5,8 @@ from dataclasses import dataclass
 
 @dataclass
 class QueryODParameters:
-    destination_cells: list[int]
-    origin_cells: list[int]
     start_date: date
     end_date: date
-    origin_cells: list[int]
-    destination_cells: list[int]
-    h3_resolution: int
     modalities: list[str]
     dont_filter_on_modality: bool
     days_of_week: list[int]
@@ -24,10 +19,7 @@ def prepare_query(
         end_date,
         days_of_week,
         time_periods,
-        h3_resolution,
-        modalities,
-        destination_cells = None,
-        origin_cells = None
+        modalities
         ):
     if start_date > end_date:
         raise HTTPException(status_code=422, detail="start_date is after end_date")
@@ -50,14 +42,7 @@ def prepare_query(
         query_modalities = modalities.split(",")
         dont_filter_on_modalities = False
     
-    h3_resolution = int(h3_resolution)
-    query_destinations = convert_h3_cells(cells=destination_cells, h3_resolution=h3_resolution)
-    query_origins = convert_h3_cells(cells=origin_cells, h3_resolution=h3_resolution)
-    
     return QueryODParameters(
-        destination_cells = query_destinations,
-        origin_cells = query_origins,
-        h3_resolution=h3_resolution,
         start_date = start_date,
         end_date = end_date,
         dont_filter_on_time_periods = don_filter_on_time_periods,
