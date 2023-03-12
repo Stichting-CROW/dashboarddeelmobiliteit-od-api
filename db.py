@@ -181,3 +181,37 @@ def get_accessible_h3_cells(municipalities: list[str], h3_resolution: int):
         except Exception as e:
             conn.rollback()
             print(e)
+
+def get_accessible_geometries(municipalities: list[str]):
+    stmt = """
+    SELECT zone_id, municipality, stats_ref 
+    FROM residential_areas 
+    WHERE municipality IN %(municipalities)s;
+    """
+    with db_helper.get_resource() as (cur, conn):
+        try:
+            cur.execute(stmt, {
+                "municipalities": tuple(municipalities),
+            })
+            return cur.fetchall()
+        except Exception as e:
+            conn.rollback()
+            print(e)
+
+def get_accessible_geometries_with_geojson(municipalities: list[str]):
+    stmt = """
+    SELECT zone_id, area, municipality, stats_ref 
+    FROM residential_areas 
+    WHERE municipality IN %(municipalities)s;
+    """
+    with db_helper.get_resource() as (cur, conn):
+        try:
+            cur.execute(stmt, {
+                "municipalities": tuple(municipalities),
+            })
+            return cur.fetchall()
+        except Exception as e:
+            conn.rollback()
+            print(e)
+
+  

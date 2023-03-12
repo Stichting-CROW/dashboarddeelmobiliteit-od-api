@@ -6,6 +6,7 @@ import db
 import h3
 from acl import get_acl, acl
 import accessible_h3
+import accessible_geometry
 
 app = FastAPI()
 
@@ -174,9 +175,11 @@ async def get_origins(
     time_periods: str | None = time_periods_query,
     modalities: str | None = modalities_query,
     destination_stat_refs: str | None = destination_stat_refs_query
-):    
-    if not request.state.acl.is_admin:
+):  
+    destination_stat_refs = destination_stat_refs.split(",")
+    if not accessible_geometry.check_if_user_has_access_to_geometries(request.state.acl, destination_stat_refs):
         raise HTTPException(403, "This user is not authorized to receive this information")
+    
     query_od_parameter = query_od_parameters.prepare_query(
         start_date = start_date,
         end_date = end_date,
@@ -184,7 +187,7 @@ async def get_origins(
         time_periods = time_periods,
         modalities = modalities
     )
-    destination_stat_refs = destination_stat_refs.split(",")
+    
     result = db.query_geometry_origins(destination_stat_refs, query_od_parameter)
     return {
         "result": {
@@ -202,8 +205,10 @@ async def get_destinations(
     modalities: str | None = modalities_query,
     origin_stat_refs: str | None = origin_stat_refs_query
 ):
-    if not request.state.acl.is_admin: 
-        raise HTTPException(403, "This user is not authorized to receive this information")
+    origin_stat_refs = origin_stat_refs.split(",")
+    if not accessible_geometry.check_if_user_has_access_to_geometries(request.state.acl, origin_stat_refs):
+        raise HTTPException(403, "this user is not authorized to receive this information")
+    
     query_od_parameter = query_od_parameters.prepare_query(
         start_date = start_date,
         end_date = end_date,
@@ -211,7 +216,6 @@ async def get_destinations(
         time_periods = time_periods,
         modalities = modalities
     )
-    origin_stat_refs = origin_stat_refs.split(",")
     result = db.query_geometry_destinations(origin_stat_refs, query_od_parameter)
     return {
         "result": {
@@ -230,7 +234,7 @@ async def get_accessible_h3_cells(
     if len(filter_municipalities) == 0 and request.state.acl.is_admin:
         return {
             "result": {
-                "all_h3_cells_accessible": True,
+                "all_accessible": True,
                 "accessible_h3_cells": []
             }  
         }
@@ -245,8 +249,37 @@ async def get_accessible_h3_cells(
     result = accessible_h3.get_accessible_h3_cells(list(filter_municipalities), h3_resolution)  
     return {
         "result": {
-            "all_h3_cells_accessible": request.state.acl.is_admin,
+            "all_accessible": request.state.acl.is_admin,
             "accessible_h3_cells": result
+        }  
+    }
+
+@app.get("/accessible/geometry")
+async def get_accessible_geometries(
+    request: Request,
+    filter_municipalities: str | None = ""
+):
+    filter_municipalities = set(filter_municipalities.split(","))
+    filter_municipalities.discard("")
+    if len(filter_municipalities) == 0 and request.state.acl.is_admin:
+        return {
+            "result": {
+                "all_accessible": True,
+                "accessible_geometries": []
+            }  
+        }
+
+    accessible_municipalities = get_acl.get_accessible_municipalities(request.state.acl)
+    if not request.state.acl.is_admin and not filter_municipalities.issubset(accessible_municipalities):
+         raise HTTPException(403, "this user is not allowed to retrieve information for all municipalities specified in filter")
+    if len(filter_municipalities) == 0:
+        filter_municipalities = accessible_municipalities
+    
+    result = accessible_geometry.get_accessible_geometries(filter_municipalities)
+    return {
+        "result": {
+            "all_accessible": request.state.acl.is_admin,
+            "accessible_geometries": result
         }  
     }
 
