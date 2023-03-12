@@ -1,11 +1,22 @@
-from fastapi import FastAPI, Query, Depends, HTTPException
+from fastapi import FastAPI, Query, Depends, HTTPException, Request
+from fastapi.responses import JSONResponse
 from datetime import date
 import query_od_parameters
 import db
 import h3
-from authorization import access_control
+from acl import get_acl, acl
+import accessible_h3
 
 app = FastAPI()
+
+@app.middleware("http")
+async def authorize(request: Request, call_next):
+    result = get_acl.get_access(request=request)
+    if not result:
+        return JSONResponse(status_code=401, content={"reason": "user is not authorized"})
+    request.state.acl = result
+    response = await call_next(request)
+    return response
 
 start_date_query = Query(
     default = ...,
@@ -95,6 +106,7 @@ def serialize_od_geometry_result(results):
 
 @app.get("/origins/h3")
 async def get_origins_h3(
+    request: Request,
     start_date: date | None = start_date_query,
     end_date: date | None = end_date_query,
     days_of_week: str | None = days_of_week_query,
@@ -102,10 +114,12 @@ async def get_origins_h3(
     h3_resolution: str | None = h3_resolution_query,
     modalities: str | None = modalities_query,
     destination_cells: str | None = destination_cells_query,
-    current_user: access_control.User = Depends(access_control.get_current_user)
-):    
-    if not current_user.acl.is_admin:
-        raise HTTPException(403, "This user is not authorized to receive this information")
+):
+    h3_resolution = int(h3_resolution)
+    query_destinations = query_od_parameters.convert_h3_cells(cells=destination_cells, h3_resolution=h3_resolution)
+    if not accessible_h3.check_if_user_has_access_to_h3_cells(request.state.acl, query_destinations, h3_resolution):
+        raise HTTPException(403, "this user is not authorized to receive information of these h3 cells")
+    
     query_od_parameter = query_od_parameters.prepare_query(
         start_date = start_date,
         end_date = end_date,
@@ -113,8 +127,6 @@ async def get_origins_h3(
         time_periods = time_periods,
         modalities = modalities
     )
-    h3_resolution = int(h3_resolution)
-    query_destinations = query_od_parameters.convert_h3_cells(cells=destination_cells, h3_resolution=h3_resolution)
     result = db.query_h3_origins(query_destinations, h3_resolution, query_od_parameter)
     return {
         "result": {
@@ -123,18 +135,21 @@ async def get_origins_h3(
     }
 
 @app.get("/destinations/h3")
-async def get_destinations_h3( 
+async def get_destinations_h3(
+    request: Request,
     start_date: date | None = start_date_query,
     end_date: date | None = end_date_query,
     days_of_week: str | None = days_of_week_query,
     time_periods: str | None = time_periods_query,
     h3_resolution: str | None = h3_resolution_query,
     modalities: str | None = modalities_query,
-    origin_cells: str | None = origin_cells_query,
-    current_user: access_control.User = Depends(access_control.get_current_user)
+    origin_cells: str | None = origin_cells_query
 ):
-    if not current_user.acl.is_admin:
-        raise HTTPException(403, "This user is not authorized to receive this information")
+    h3_resolution = int(h3_resolution)
+    query_origins = query_od_parameters.convert_h3_cells(cells=origin_cells, h3_resolution=h3_resolution)
+    if not accessible_h3.check_if_user_has_access_to_h3_cells(request.state.acl, query_origins, h3_resolution):
+        raise HTTPException(403, "this user is not authorized to receive information of these h3 cells")
+    
     query_od_parameter = query_od_parameters.prepare_query(
         start_date = start_date,
         end_date = end_date,
@@ -142,8 +157,6 @@ async def get_destinations_h3(
         time_periods = time_periods,
         modalities = modalities
     )
-    h3_resolution = int(h3_resolution)
-    query_origins = query_od_parameters.convert_h3_cells(cells=origin_cells, h3_resolution=h3_resolution)
 
     result = db.query_h3_destinations(query_origins, h3_resolution, query_od_parameter)
     return {
@@ -154,15 +167,15 @@ async def get_destinations_h3(
 
 @app.get("/origins/geometry")
 async def get_origins(
+    request: Request,
     start_date: date | None = start_date_query,
     end_date: date | None = end_date_query,
     days_of_week: str | None = days_of_week_query,
     time_periods: str | None = time_periods_query,
     modalities: str | None = modalities_query,
-    destination_stat_refs: str | None = destination_stat_refs_query,
-    current_user: access_control.User = Depends(access_control.get_current_user)
+    destination_stat_refs: str | None = destination_stat_refs_query
 ):    
-    if not current_user.acl.is_admin:
+    if not request.state.acl.is_admin:
         raise HTTPException(403, "This user is not authorized to receive this information")
     query_od_parameter = query_od_parameters.prepare_query(
         start_date = start_date,
@@ -180,16 +193,16 @@ async def get_origins(
     }
 
 @app.get("/destinations/geometry")
-async def get_destinations( 
+async def get_destinations(
+    request: Request, 
     start_date: date | None = start_date_query,
     end_date: date | None = end_date_query,
     days_of_week: str | None = days_of_week_query,
     time_periods: str | None = time_periods_query,
     modalities: str | None = modalities_query,
-    origin_stat_refs: str | None = origin_stat_refs_query,
-    current_user: access_control.User = Depends(access_control.get_current_user)
+    origin_stat_refs: str | None = origin_stat_refs_query
 ):
-    if not current_user.acl.is_admin:
+    if not request.state.acl.is_admin: 
         raise HTTPException(403, "This user is not authorized to receive this information")
     query_od_parameter = query_od_parameters.prepare_query(
         start_date = start_date,
@@ -203,6 +216,37 @@ async def get_destinations(
     return {
         "result": {
             "destinations": result
+        }  
+    }
+
+@app.get("/accessible/h3")
+async def get_accessible_h3_cells(
+    request: Request,
+    filter_municipalities: str | None = "",
+    h3_resolution: str | None = h3_resolution_query,
+):
+    filter_municipalities = set(filter_municipalities.split(","))
+    filter_municipalities.discard("")
+    if len(filter_municipalities) == 0 and request.state.acl.is_admin:
+        return {
+            "result": {
+                "all_h3_cells_accessible": True,
+                "accessible_h3_cells": []
+            }  
+        }
+
+    accessible_municipalities = get_acl.get_accessible_municipalities(request.state.acl)
+    if not request.state.acl.is_admin and not filter_municipalities.issubset(accessible_municipalities):
+         raise HTTPException(403, "This user is not allowed to retreive information for all municipalities specified in filter")
+    if len(filter_municipalities) == 0:
+        filter_municipalities = accessible_municipalities
+    
+    h3_resolution = int(h3_resolution)
+    result = accessible_h3.get_accessible_h3_cells(list(filter_municipalities), h3_resolution)  
+    return {
+        "result": {
+            "all_h3_cells_accessible": request.state.acl.is_admin,
+            "accessible_h3_cells": result
         }  
     }
 

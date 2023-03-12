@@ -13,7 +13,7 @@ def query_h3_destinations(
             FROM od_h3
             WHERE origin_cell IN %(origin_cells)s
             AND h3_level = %(h3_resolution)s
-            AND (%(dont_filter_on_modality)s = true OR modality = %(modalities)s)
+            AND (%(dont_filter_on_modality)s = true OR modality IN %(modalities)s)
             AND aggregation_period_id IN (
                 SELECT aggregation_period_id 
                 FROM od_aggregation_period
@@ -55,7 +55,7 @@ def query_h3_origins(
             FROM od_h3
             WHERE destination_cell IN %(destination_cells)s
             AND h3_level = %(h3_resolution)s
-            AND (%(dont_filter_on_modality)s = true or modality = %(modalities)s)
+            AND (%(dont_filter_on_modality)s = true or modality IN %(modalities)s)
             AND aggregation_period_id IN (
                 SELECT aggregation_period_id 
                 FROM od_aggregation_period
@@ -95,7 +95,7 @@ def query_geometry_destinations(
             SELECT destination_stats_ref as destination_stat_ref, sum(number_of_trips) as number_of_trips
             FROM od_geometry
             WHERE origin_stats_ref IN %(origin_stat_refs)s
-            AND (%(dont_filter_on_modality)s = true OR modality = %(modalities)s)
+            AND (%(dont_filter_on_modality)s = true OR modality IN %(modalities)s)
             AND aggregation_period_id IN (
                 SELECT aggregation_period_id 
                 FROM od_aggregation_period
@@ -134,7 +134,7 @@ def query_geometry_origins(
             SELECT origin_stats_ref as origin_stat_ref, sum(number_of_trips) as number_of_trips
             FROM od_geometry
             WHERE destination_stats_ref IN %(destination_stat_refs)s
-            AND (%(dont_filter_on_modality)s = true or modality = %(modalities)s)
+            AND (%(dont_filter_on_modality)s = true or modality IN %(modalities)s)
             AND aggregation_period_id IN (
                 SELECT aggregation_period_id 
                 FROM od_aggregation_period
@@ -159,6 +159,24 @@ def query_geometry_origins(
                 "start_period": data.start_date,
                 "end_period": data.end_date
                 })
+            return cur.fetchall()
+        except Exception as e:
+            conn.rollback()
+            print(e)
+
+def get_accessible_h3_cells(municipalities: list[str], h3_resolution: int):
+    stmt = """
+        SELECT DISTINCT(UNNEST(cells)) as h3_cell
+        FROM od_h3_acl
+        WHERE municipality_code IN %(municipality_code)s
+        AND h3_level = %(h3_level)s
+    """
+    with db_helper.get_resource() as (cur, conn):
+        try:
+            cur.execute(stmt, {
+                "municipality_code": tuple(municipalities),
+                "h3_level": h3_resolution
+            })
             return cur.fetchall()
         except Exception as e:
             conn.rollback()
